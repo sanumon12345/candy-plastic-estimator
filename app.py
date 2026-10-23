@@ -1,92 +1,107 @@
+# app.py - run with: python -m streamlit run app.py
 import streamlit as st
-import pandas as pd
 import joblib
+import pandas as pd
+import numpy as np
 
-# Set page configuration
 st.set_page_config(
-    page_title="Candy Company Plastic Waste & Sales Predictor",
-    page_icon="🍬",
+    page_title="Candy Eco-Plastic Estimator", 
+    page_icon="🍬", 
     layout="wide"
 )
 
-# Load the trained model pipeline
+# --- Load Trained Pipeline ---
 @st.cache_resource
 def load_model():
     return joblib.load("models/candy_plastic_model.joblib")
 
-model_data = load_model()
-model = model_data["pipeline"]
+bundle = load_model()
+pipeline = bundle["pipeline"]
 
-# --- Sidebar Inputs ---
-st.sidebar.header("Production & Market Inputs")
-
-target_production_year = st.sidebar.slider("Target Production Year", 2025, 2030, 2025)
-marketing_budget = st.sidebar.slider("Marketing Budget ($)", 5000, 60000, 37000)
-unit_price = st.sidebar.slider("Candy Unit Price ($)", 0.5, 4.5, 1.5)
-plastic_per_candy_g = st.sidebar.slider("Plastic per Candy (grams)", 0.5, 3.0, 1.2)
-
-# --- Compute Multi-Year Projections ---
-years = list(range(2025, 2031))
-sales_projections = []
-plastic_projections_kg = []
-
-for yr in years:
-    input_df = pd.DataFrame({
-        "marketing_budget": [marketing_budget],
-        "unit_price": [unit_price],
-        "plastic_per_candy_g": [plastic_per_candy_g],
-        "production_year": [yr]
-    })
-    pred_sales = model.predict(input_df)[0]
-    total_plastic_kg = (pred_sales * plastic_per_candy_g) / 1000.0
-    
-    sales_projections.append(pred_sales)
-    plastic_projections_kg.append(total_plastic_kg)
-
-# --- Sync KPI Cards with the Selected Slider Year ---
-selected_index = years.index(target_production_year)
-current_sales = sales_projections[selected_index]
-current_plastic_kg = plastic_projections_kg[selected_index]
-current_plastic_tons = current_plastic_kg / 1000.0
-
-# --- Main Page Layout ---
 st.title("🍬 Candy Company Plastic Waste & Sales Predictor")
-st.write("Estimate future candy sales volume and calculate total environmental plastic footprint.")
+st.markdown("Estimate future candy sales volume and calculate total environmental plastic footprint.")
 
-st.subheader(f"📌 Forecasted Key Performance Indicators ({target_production_year})")
+# --- SIDEBAR: Input Parameters ---
+st.sidebar.header("📊 Production & Market Inputs")
 
+target_year = st.sidebar.slider("Target Production Year", 2025, 2030, 2026, 1)
+marketing_budget = st.sidebar.slider("Marketing Budget ($)", 5000, 100000, 25000, 1000)
+unit_price = st.sidebar.slider("Candy Unit Price ($)", 0.50, 5.00, 1.50, 0.10)
+plastic_per_candy = st.sidebar.slider("Plastic per Candy (grams)", 0.2, 5.0, 1.2, 0.1)
+
+# --- Build Sample DataFrame for ML Model ---
+sample = pd.DataFrame([[marketing_budget, unit_price, plastic_per_candy, target_year]],
+                      columns=bundle["features"])
+
+# --- PREDICTION & CALCULATIONS ---
+predicted_sales = int(pipeline.predict(sample)[0])
+total_plastic_grams = predicted_sales * plastic_per_candy
+total_plastic_kg = total_plastic_grams / 1000.0
+total_plastic_tons = total_plastic_kg / 1000.0
+
+# --- DISPLAY METRICS ---
+st.subheader("📌 Forecasted Key Performance Indicators")
 col1, col2, col3 = st.columns(3)
-col1.metric("Predicted Candy Sales", f"{int(current_sales):,} units")
-col2.metric("Total Plastic Waste (KG)", f"{current_plastic_kg:,.2f} kg")
-col3.metric("Plastic Waste (Metric Tons)", f"{current_plastic_tons:,.3f} Tons")
 
-# --- Environmental Impact Alert ---
+with col1:
+    st.metric(label="Predicted Candy Sales", value=f"{predicted_sales:,} units")
+with col2:
+    st.metric(label="Total Plastic Waste (KG)", value=f"{total_plastic_kg:,.2f} kg")
+with col3:
+    st.metric(label="Plastic Waste (Metric Tons)", value=f"{total_plastic_tons:,.3f} Tons")
+
+st.divider()
+
+# --- ENVIRONMENTAL IMPACT LEVEL ---
 st.subheader("🌍 Environmental Impact Assessment")
-if current_plastic_tons > 0.5:
-    st.error("🔴 High Footprint Alert! High volume of plastic waste. Sustainable packaging alternatives recommended.")
+if total_plastic_kg < 100:
+    st.success("🟢 Low Eco-Footprint: Plastic waste is well controlled.")
+elif total_plastic_kg < 300:
+    st.warning("🟡 Moderate Footprint: Consider reducing packaging plastic thickness.")
 else:
-    st.success("🟢 Eco-Friendly Footprint: Plastic waste levels are within acceptable operational limits.")
+    st.error("🔴 High Footprint Alert! High volume of plastic waste. Sustainable packaging alternatives recommended.")
 
-# --- Multi-Year Growth & Plastic Impact Projection Charts ---
+st.divider()
+
+# --- FUTURE PROJECTION & COMPARISON CHARTS ---
 st.subheader("📈 Multi-Year Growth & Plastic Impact Projection")
-st.write(f"Simulating company growth from 2025 to 2030 based on your current settings:")
+st.write("Simulating company growth from 2025 to 2030 based on your current settings:")
 
-chart_data = pd.DataFrame({
-    "Year": years,
-    "Projected Sales": sales_projections,
-    "Plastic Waste (KG)": plastic_projections_kg
-})
+future_years = list(range(2025, 2031))
+future_sales = []
+future_plastic_tons = []
 
-col_chart1, col_chart2 = st.columns(2)
+# Simulate gradual market expansion year-over-year
+for i, yr in enumerate(future_years):
+    temp_budget = marketing_budget * (1 + (i * 0.05))
+    temp_sample = pd.DataFrame([[temp_budget, unit_price, plastic_per_candy, yr]], 
+                               columns=bundle["features"])
+    s_pred = int(pipeline.predict(temp_sample)[0])
+    p_pred_tons = (s_pred * plastic_per_candy) / 1000000.0
+    
+    future_sales.append(s_pred)
+    future_plastic_tons.append(p_pred_tons)
 
-with col_chart1:
-    st.markdown("**Projected Sales Volume**")
-    st.bar_chart(chart_data.set_index("Year")["Projected Sales"])
+# Create two columns for separate, clean charts
+chart_col1, chart_col2 = st.columns(2)
 
-with col_chart2:
-    st.markdown("**Projected Plastic Waste (KG)**")
-    st.bar_chart(chart_data.set_index("Year")["Plastic Waste (KG)"])
+sales_df = pd.DataFrame({
+    "Year": [str(y) for y in future_years],
+    "Projected Sales (Units)": future_sales
+}).set_index("Year")
 
-# --- Footer Details ---
-st.markdown("---")
-st.caption(f"Model Performance: R² Score = 99.63%, MAE = 9015 units. | Project Developed by Abdul Nihal K (Roll No: 40)")
+plastic_df = pd.DataFrame({
+    "Year": [str(y) for y in future_years],
+    "Plastic Waste (Metric Tons)": future_plastic_tons
+}).set_index("Year")
+
+with chart_col1:
+    st.markdown("##### 📊 Projected Sales Volume")
+    st.bar_chart(sales_df)
+
+with chart_col2:
+    st.markdown("##### 🗑️ Projected Plastic Waste")
+    st.bar_chart(plastic_df, color="#ff4b4b")
+
+# --- FOOTER ---
+st.caption(f"Model Performance: R² Score = {bundle['r2_score']:.2%}, MAE = {bundle['mae']:.0f} units.")
